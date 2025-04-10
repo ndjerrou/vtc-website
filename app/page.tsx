@@ -82,7 +82,7 @@ export default function Home() {
                     asChild
                     variant='outline'
                     size='lg'
-                    className='border-white text-white hover:bg-white/10'
+                    className='border-white text-white hover:bg-white/10 bg-black/30'
                   >
                     <Link href='#pricing'>Voir les tarifs</Link>
                   </Button>
