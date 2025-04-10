@@ -28,7 +28,7 @@ import {
   DrawerTitle,
   DrawerTrigger,
 } from '@/components/ui/drawer';
-import { ChevronDown } from 'lucide-react';
+import { ChevronDown, LocateFixed } from 'lucide-react';
 
 const passengerOptions = [
   { value: '1', label: '1 passager' },
@@ -84,6 +84,14 @@ const vehicleOptions = [
   { value: 'any', label: 'Pas de préférence' },
 ];
 
+// Type for coordinates state
+interface Coordinates {
+  lat: number;
+  lon: number;
+}
+
+const GPS_PLACEHOLDER = '[Position GPS actuelle]'; // Define placeholder
+
 export default function ReservationForm() {
   const [name, setName] = useState<string>('');
   const [phone, setPhone] = useState<string>('');
@@ -95,6 +103,8 @@ export default function ReservationForm() {
   const [hours, setHours] = useState<string>('');
   const [packageType, setPackageType] = useState<string>('');
   const [pickupAddress, setPickupAddress] = useState<string>('');
+  const [pickupCoordinates, setPickupCoordinates] =
+    useState<Coordinates | null>(null); // State for GPS coords
   const [date, setDate] = useState<Date | undefined>(undefined);
   const [time, setTime] = useState<string>('');
   const [babySeat, setBabySeat] = useState<boolean>(false);
@@ -115,6 +125,7 @@ export default function ReservationForm() {
     setHours('');
     setPackageType('');
     setPickupAddress('');
+    setPickupCoordinates(null); // Reset coordinates
     setDate(undefined);
     setTime('');
     setBabySeat(false);
@@ -123,58 +134,109 @@ export default function ReservationForm() {
     setNotes('');
   };
 
+  // Function to get current location
+  const handleGetCurrentLocation = () => {
+    if (!navigator.geolocation) {
+      alert("La géolocalisation n'est pas supportée par votre navigateur.");
+      return;
+    }
+
+    navigator.geolocation.getCurrentPosition(
+      position => {
+        const coords = {
+          lat: position.coords.latitude,
+          lon: position.coords.longitude,
+        };
+        setPickupCoordinates(coords);
+        setPickupAddress(GPS_PLACEHOLDER); // Set placeholder text
+        alert('Position actuelle récupérée !');
+      },
+      error => {
+        console.error('Error getting location: ', error);
+        let message = 'Impossible de récupérer votre position actuelle.';
+        if (error.code === error.PERMISSION_DENIED) {
+          message = 'Vous avez refusé la permission de géolocalisation.';
+        } else if (error.code === error.POSITION_UNAVAILABLE) {
+          message = 'Information de localisation non disponible.';
+        } else if (error.code === error.TIMEOUT) {
+          message = 'Timeout lors de la récupération de la position.';
+        }
+        alert(message);
+      }
+    );
+  };
+
   const handleSubmit = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
 
+    // Validation updates
     const isDestinationInvalid =
       pricingType === 'fixed' && destination === '' && manualDestination === '';
     const isManualDestinationInvalid =
       pricingType === 'fixed' &&
       destination === 'other' &&
       manualDestination === '';
+    // Check if pickup is valid (either text address provided OR GPS coords exist)
+    const isPickupAddressValid =
+      (pickupAddress !== '' && pickupAddress !== GPS_PLACEHOLDER) ||
+      pickupCoordinates !== null;
 
     if (
       !name ||
       !phone ||
       !date ||
       !time ||
-      (pricingType === 'fixed' && !pickupAddress) ||
-      (pricingType === 'hourly' && (!hours || !pickupAddress)) ||
-      (pricingType === 'package' && (!packageType || !pickupAddress)) ||
+      !isPickupAddressValid || // Updated pickup validation
+      (pricingType === 'hourly' && !hours) ||
+      (pricingType === 'package' && !packageType) ||
       isDestinationInvalid ||
       isManualDestinationInvalid
     ) {
-      alert('Veuillez remplir tous les champs obligatoires (*).');
+      alert(
+        "Veuillez remplir tous les champs obligatoires (*), y compris l'adresse de prise en charge (manuellement ou via GPS)."
+      );
       return;
     }
 
     const phoneNumber = '+33624117756';
 
-    // Determine Display and Map Query Destinations
+    // Determine Destinations & Generate Links
     let displayDestination = '';
     let mapQueryDestination = '';
-    let mapsUrl = ''; // For destination GPS link
+    let destinationMapsUrl = '';
+    let displayPickupAddress = pickupAddress; // Default to text input
+    let pickupMapsUrl = '';
 
+    // Destination Logic (for fixed price only)
     if (pricingType === 'fixed') {
       if (destination === 'other') {
-        displayDestination = manualDestination; // Use manual input for display
-        mapQueryDestination = manualDestination; // Use manual input for map query
+        displayDestination = manualDestination;
+        mapQueryDestination = manualDestination;
       } else {
         const selectedOption = destinationOptions.find(
           opt => opt.value === destination
         );
         displayDestination = selectedOption
           ? selectedOption.label
-          : destination; // Fallback to value if label not found
+          : destination;
         mapQueryDestination = selectedOption
           ? selectedOption.value
-          : destination; // Use the 'value' for map query
+          : destination;
       }
-      // Generate Google Maps Link for destination
       if (mapQueryDestination) {
         const encodedDestination = encodeURIComponent(mapQueryDestination);
-        mapsUrl = `https://www.google.com/maps/search/?api=1&query=${encodedDestination}`;
+        destinationMapsUrl = `https://www.google.com/maps/search/?api=1&query=${encodedDestination}`;
       }
+    }
+
+    // Pickup Logic
+    if (pickupCoordinates) {
+      displayPickupAddress = GPS_PLACEHOLDER; // Keep placeholder for display
+      pickupMapsUrl = `https://www.google.com/maps?q=${pickupCoordinates.lat},${pickupCoordinates.lon}`;
+    } else if (pickupAddress) {
+      // displayPickupAddress remains pickupAddress
+      const encodedPickup = encodeURIComponent(pickupAddress);
+      pickupMapsUrl = `https://www.google.com/maps/search/?api=1&query=${encodedPickup}`;
     }
 
     // Build WhatsApp Message
@@ -189,27 +251,30 @@ export default function ReservationForm() {
     message += `--------------------------------------\n`;
 
     // Add Service Details
+    message += `Adresse Prise en Charge : ${displayPickupAddress}\n`; // Use determined display text
+    if (pickupMapsUrl) {
+      message += `Lien GPS (Prise en charge) : ${pickupMapsUrl}\n`; // Add pickup map link
+    }
+
     if (pricingType === 'fixed') {
       message += `Type : Forfait destination\n`;
-      message += `Destination : ${displayDestination}\n`; // Use displayDestination
-      message += `Adresse Prise en Charge : ${pickupAddress}\n`;
-      // Add GPS Link if available
-      if (mapsUrl) {
-        message += `Lien GPS (Destination) : ${mapsUrl}\n`; // Add the link here
+      message += `Destination : ${displayDestination}\n`;
+      if (destinationMapsUrl) {
+        message += `Lien GPS (Destination) : ${destinationMapsUrl}\n`; // Add destination map link
       }
     } else if (pricingType === 'hourly') {
       message += `Type : Mise à disposition\n`;
       message += `Durée : ${
         hourOptions.find(h => h.value === hours)?.label || hours + ' heure(s)'
       }\n`;
-      message += `Adresse Prise en Charge : ${pickupAddress}\n`;
+      // Pickup address already added above
     } else if (pricingType === 'package') {
       message += `Type : Forfait journée/demi-journée\n`;
       message += `Forfait : ${
         packageTypeOptions.find(p => p.value === packageType)?.label ||
         packageType
       }\n`;
-      message += `Adresse Prise en Charge : ${pickupAddress}\n`;
+      // Pickup address already added above
     }
 
     // Add Date, Time, Options
@@ -219,7 +284,8 @@ export default function ReservationForm() {
     }\n`;
     message += `Heure : ${time || 'Non spécifiée'}\n`;
     message += `--------------------------------------\n`;
-    message += `Options :\n`;
+    message += `Options :
+`;
     message += `  - Siège bébé : ${babySeat ? 'Oui (+10€)' : 'Non'}\n`;
     message += `  - Rehausseur : ${booster ? 'Oui (Gratuit)' : 'Non'}\n`;
     message += `Véhicule préféré : ${
@@ -461,13 +527,26 @@ export default function ReservationForm() {
                   <Label htmlFor='pickup-fixed'>
                     Adresse de prise en charge *
                   </Label>
-                  <Input
-                    id='pickup-fixed'
-                    placeholder='Adresse complète (ex: Aéroport Orly, Terminal 4)'
-                    required={pricingType === 'fixed'}
-                    value={pickupAddress}
-                    onChange={e => setPickupAddress(e.target.value)}
-                  />
+                  <div className='flex items-center gap-2'>
+                    <Input
+                      id='pickup-fixed'
+                      placeholder='Adresse complète ou utilisez le GPS'
+                      value={pickupAddress}
+                      onChange={e => {
+                        setPickupAddress(e.target.value);
+                        setPickupCoordinates(null); // Clear coords if user types manually
+                      }}
+                    />
+                    <Button
+                      type='button'
+                      variant='outline'
+                      size='icon'
+                      onClick={handleGetCurrentLocation}
+                      aria-label='Utiliser la position actuelle'
+                    >
+                      <LocateFixed className='h-4 w-4' />
+                    </Button>
+                  </div>
                 </div>
               </div>
             )}
@@ -536,13 +615,26 @@ export default function ReservationForm() {
                   <Label htmlFor='pickup-hourly'>
                     Adresse de prise en charge *
                   </Label>
-                  <Input
-                    id='pickup-hourly'
-                    placeholder='Adresse complète'
-                    required={pricingType === 'hourly'}
-                    value={pickupAddress}
-                    onChange={e => setPickupAddress(e.target.value)}
-                  />
+                  <div className='flex items-center gap-2'>
+                    <Input
+                      id='pickup-hourly'
+                      placeholder='Adresse complète ou utilisez le GPS'
+                      value={pickupAddress}
+                      onChange={e => {
+                        setPickupAddress(e.target.value);
+                        setPickupCoordinates(null); // Clear coords if user types manually
+                      }}
+                    />
+                    <Button
+                      type='button'
+                      variant='outline'
+                      size='icon'
+                      onClick={handleGetCurrentLocation}
+                      aria-label='Utiliser la position actuelle'
+                    >
+                      <LocateFixed className='h-4 w-4' />
+                    </Button>
+                  </div>
                 </div>
               </div>
             )}
@@ -613,13 +705,26 @@ export default function ReservationForm() {
                   <Label htmlFor='pickup-package'>
                     Adresse de prise en charge *
                   </Label>
-                  <Input
-                    id='pickup-package'
-                    placeholder='Adresse complète'
-                    required={pricingType === 'package'}
-                    value={pickupAddress}
-                    onChange={e => setPickupAddress(e.target.value)}
-                  />
+                  <div className='flex items-center gap-2'>
+                    <Input
+                      id='pickup-package'
+                      placeholder='Adresse complète ou utilisez le GPS'
+                      value={pickupAddress}
+                      onChange={e => {
+                        setPickupAddress(e.target.value);
+                        setPickupCoordinates(null); // Clear coords if user types manually
+                      }}
+                    />
+                    <Button
+                      type='button'
+                      variant='outline'
+                      size='icon'
+                      onClick={handleGetCurrentLocation}
+                      aria-label='Utiliser la position actuelle'
+                    >
+                      <LocateFixed className='h-4 w-4' />
+                    </Button>
+                  </div>
                 </div>
               </div>
             )}
