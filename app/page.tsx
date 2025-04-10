@@ -363,7 +363,7 @@ export default function Home() {
       <footer className='w-full border-t py-6 md:py-0'>
         <div className='container flex flex-col md:flex-row items-center justify-between gap-4 md:h-16'>
           <p className='text-sm text-gray-500'>
-            © 2024 VTC Paris Premium. Tous droits réservés.
+            © 2025 VTC Paris Premium. Tous droits réservés.
           </p>
           <nav className='flex gap-4 sm:gap-6'>
             <Link
