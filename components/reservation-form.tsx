@@ -81,7 +81,6 @@ const packageTypeOptions = [
 const vehicleOptions = [
   { value: 'Mercedes C300E', label: 'Mercedes C300E' },
   { value: 'Tesla Model Y', label: 'Tesla Model Y' },
-  { value: 'any', label: 'Pas de préférence' },
 ];
 
 // Type for coordinates state
@@ -198,7 +197,11 @@ export default function ReservationForm() {
       return;
     }
 
-    const phoneNumber = '+33624117756';
+    // Determine WhatsApp number based on vehicle
+    let phoneNumber = '+33624117756'; // Default (Mercedes)
+    if (vehicle === 'Tesla Model Y') {
+      phoneNumber = '+33611700973'; // Tesla number
+    }
 
     // Determine Destinations & Generate Links
     let displayDestination = '';
@@ -289,7 +292,9 @@ export default function ReservationForm() {
     message += `  - Siège bébé : ${babySeat ? 'Oui (+10€)' : 'Non'}\n`;
     message += `  - Rehausseur : ${booster ? 'Oui (Gratuit)' : 'Non'}\n`;
     message += `Véhicule préféré : ${
-      vehicleOptions.find(v => v.value === vehicle)?.label || vehicle
+      vehicleOptions.find(v => v.value === vehicle)?.label ||
+      vehicle ||
+      'Non spécifié'
     }\n`;
     if (notes)
       message += `--------------------------------------\nNotes : ${notes}\n`;
@@ -308,10 +313,11 @@ export default function ReservationForm() {
 
   const getLabel = (
     value: string,
-    options: { value: string; label: string }[]
+    options: { value: string; label: string }[],
+    placeholder: string = 'Sélectionnez' // Default placeholder
   ) => {
     if (value === 'other') return 'Autre (préciser ci-dessous)';
-    return options.find(opt => opt.value === value)?.label || `Sélectionnez`;
+    return options.find(opt => opt.value === value)?.label || placeholder;
   };
 
   return (
@@ -773,7 +779,11 @@ export default function ReservationForm() {
                       variant='outline'
                       className='w-full justify-between font-normal'
                     >
-                      {getLabel(vehicle, vehicleOptions)}
+                      {getLabel(
+                        vehicle,
+                        vehicleOptions,
+                        'Quel type de véhicule souhaitez-vous réserver ?'
+                      )}
                       <ChevronDown className='h-4 w-4 opacity-50' />
                     </Button>
                   </DrawerTrigger>
@@ -806,7 +816,7 @@ export default function ReservationForm() {
               ) : (
                 <Select value={vehicle} onValueChange={setVehicle}>
                   <SelectTrigger id='vehicle'>
-                    <SelectValue placeholder='Sélectionnez' />
+                    <SelectValue placeholder='Quel type de véhicule souhaitez-vous réserver ?' />
                   </SelectTrigger>
                   <SelectContent>
                     {vehicleOptions.map(option => (
