@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
@@ -28,7 +28,8 @@ interface BookingDetails {
   // Add any other details needed for the message
 }
 
-export default function ReservationSuccessPage() {
+// Define the actual page content as a separate component
+function SuccessPageContent() {
   const searchParams = useSearchParams();
   const sessionId = searchParams.get('session_id');
   const [status, setStatus] = useState<
@@ -213,6 +214,25 @@ export default function ReservationSuccessPage() {
           </Button>
         </>
       )}
+    </div>
+  );
+}
+
+// The default export now wraps the content component in Suspense
+export default function ReservationSuccessPage() {
+  return (
+    <Suspense fallback={<LoadingFallback />}>
+      <SuccessPageContent />
+    </Suspense>
+  );
+}
+
+// Simple fallback component to show while loading
+function LoadingFallback() {
+  return (
+    <div className='flex flex-col items-center justify-center min-h-[60vh] text-center px-4'>
+      <Loader2 className='w-16 h-16 text-gray-400 mb-4 animate-spin' />
+      <p className='text-lg text-muted-foreground'>Chargement...</p>
     </div>
   );
 }
