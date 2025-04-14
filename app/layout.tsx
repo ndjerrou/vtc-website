@@ -13,7 +13,7 @@ export const metadata: Metadata = {
   description:
     'Réservez votre chauffeur VTC privé à Paris et Île-de-France. Service premium, véhicules Mercedes et Tesla.',
   icons: {
-    icon: '/favicon.ico', // Specifies the path to the favicon
+    icon: '/car-icon.svg', // Specifies the path to the favicon
   },
 };
 
