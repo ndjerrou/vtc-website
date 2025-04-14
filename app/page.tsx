@@ -348,28 +348,56 @@ export default function Home() {
                   Notre équipe est disponible 24h/24 et 7j/7 pour répondre à
                   toutes vos questions.
                 </p>
-                <div className='space-y-2'>
-                  <div className='flex items-center gap-2'>
-                    <Phone className='h-5 w-5 text-primary' />
-                    <span>+33 6 24 11 77 56</span>
+                <p className='text-lg font-semibold mt-4'>
+                  Votre trajet, notre priorité. Voyagez en toute sérénité.
+                </p>
+                <div className='space-y-4 pt-4'>
+                  <div className='flex items-start gap-3'>
+                    <MapPin className='h-5 w-5 text-primary flex-shrink-0 mt-1' />
+                    <div>
+                      <span className='font-medium'>Notre base :</span>
+                      <br />
+                      40 rue Marcel Bontemps
+                      <br />
+                      92100 Boulogne-Billancourt
+                    </div>
                   </div>
-                  <div className='flex items-center gap-2'>
-                    <MapPin className='h-5 w-5 text-primary' />
-                    <span>
-                      Notre base : 6, avenue André Morizet 92100
-                      Boulogne-Billancourt
-                    </span>
+                  <div className='flex items-center gap-3'>
+                    <Phone className='h-5 w-5 text-primary flex-shrink-0' />
+                    <div>
+                      <span className='font-medium'>Mercedes :</span>
+                      <a
+                        href='tel:+33624117756'
+                        className='ml-1 text-primary hover:underline font-semibold'
+                      >
+                        06 24 11 77 56
+                      </a>
+                    </div>
+                  </div>
+                  <div className='flex items-center gap-3'>
+                    <Phone className='h-5 w-5 text-primary flex-shrink-0' />
+                    <div>
+                      <span className='font-medium'>Tesla :</span>
+                      <a
+                        href='tel:+33611700973'
+                        className='ml-1 text-primary hover:underline font-semibold'
+                      >
+                        06 11 70 09 73
+                      </a>
+                    </div>
                   </div>
                 </div>
               </div>
-              <div className='mx-auto w-full max-w-[500px] lg:max-w-none overflow-hidden rounded-xl'>
+              <div className='aspect-w-16 aspect-h-9 mt-8 overflow-hidden rounded-lg shadow-xl'>
                 <iframe
-                  src='https://www.google.com/maps/embed?pb=!1m18!1m12!1m3!1d2626.504679432013!2d2.238806915673182!3d48.83603347928538!2m3!1f0!2f0!3f0!3m2!1i1024!2i768!4f13.1!3m3!1m2!1s0x47e67a7e5a3c0f3b%3A0xf5c2df1ac7a08f9a!2s6%20Av.%20Andr%C3%A9%20Morizet%2C%2092100%20Boulogne-Billancourt!5e0!3m2!1sfr!2sfr!4v1678886400000!5m2!1sfr!2sfr'
+                  src='https://www.google.com/maps/embed?pb=!1m18!1m12!1m3!1d2625.830897623129!2d2.241824376876663!3d48.84762370051754!2m3!1f0!2f0!3f0!3m2!1i1024!2i768!4f13.1!3m3!1m2!1s0x47e67aed5720a01d%3A0xa69d9c8417503a5a!2s40%20Rue%20Marcel%20Bontemps%2C%2092100%20Boulogne-Billancourt!5e0!3m2!1sen!2sfr!4v1721321540736!5m2!1sen!2sfr'
                   width='100%'
-                  height='300'
+                  height='450'
                   style={{ border: 0 }}
-                  allowFullScreen
+                  allowFullScreen={true}
                   loading='lazy'
+                  referrerPolicy='no-referrer-when-downgrade'
+                  title='Carte Google Maps pointant vers 40 rue Marcel Bontemps, Boulogne-Billancourt'
                 ></iframe>
               </div>
             </div>
@@ -378,35 +406,6 @@ export default function Home() {
       </main>
       <footer className='w-full border-t py-6'>
         <div className='container flex flex-col items-center justify-between gap-6 text-center md:text-left'>
-          <div className='w-full rounded-lg border bg-card text-card-foreground shadow-sm p-4 md:p-6'>
-            <p className='text-lg font-semibold mb-3'>
-              Votre trajet, notre priorité. Voyagez en toute sérénité.
-            </p>
-            <div className='grid grid-cols-1 md:grid-cols-2 gap-3 text-sm'>
-              <div>
-                <span className='font-medium'>
-                  Besoin d'un chauffeur Mercedes ?
-                </span>{' '}
-                Appelez le{' '}
-                <a
-                  href='tel:+33624117756'
-                  className='text-primary hover:underline'
-                >
-                  06 24 11 77 56
-                </a>
-              </div>
-              <div>
-                <span className='font-medium'>Pour une Tesla ?</span> Appelez le{' '}
-                <a
-                  href='tel:+33611700973'
-                  className='text-primary hover:underline'
-                >
-                  06 11 70 09 73
-                </a>
-              </div>
-            </div>
-          </div>
-
           <div className='w-full flex flex-col md:flex-row items-center justify-between gap-4'>
             <p className='text-sm text-gray-500'>
               © 2025 VTC Paris Premium. Tous droits réservés.

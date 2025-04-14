@@ -35,6 +35,8 @@ export default function ReservationSuccessPage() {
     'verifying' | 'success' | 'error' | 'missing_details'
   >('verifying');
   const [errorMessage, setErrorMessage] = useState<string>('');
+  const [countdown, setCountdown] = useState<number>(10);
+  const [whatsappUrl, setWhatsappUrl] = useState<string>('');
 
   useEffect(() => {
     if (!sessionId) {
@@ -108,18 +110,35 @@ export default function ReservationSuccessPage() {
         message += `--------------------------------------\nNotes : ${details.notes}\n`;
 
       // Trigger WhatsApp
-      const whatsappUrl = `https://wa.me/${
+      const whatsappUrlGenerated = `https://wa.me/${
         details.targetWhatsAppNumber
       }?text=${encodeURIComponent(message)}`;
-      window.location.href = whatsappUrl; // Redirect to WhatsApp
 
+      // Store the URL and set status to success to start countdown
+      setWhatsappUrl(whatsappUrlGenerated);
       setStatus('success');
+
+      // ---- START COUNTDOWN ----
+      const intervalId = setInterval(() => {
+        setCountdown(prevCountdown => prevCountdown - 1);
+      }, 1000);
+
+      // Cleanup function for the interval
+      return () => clearInterval(intervalId);
     } catch (error) {
       console.error('Error processing booking details:', error);
       setStatus('error');
       setErrorMessage('Impossible de traiter les détails de la réservation.');
     }
   }, [sessionId]); // Rerun effect if sessionId changes
+
+  // Effect to handle redirection when countdown reaches 0
+  useEffect(() => {
+    if (status === 'success' && countdown === 0 && whatsappUrl) {
+      window.location.href = whatsappUrl;
+    }
+    // We don't need to clean up interval here, it's handled above
+  }, [countdown, status, whatsappUrl]);
 
   return (
     <div className='flex flex-col items-center justify-center min-h-[60vh] text-center px-4'>
@@ -141,9 +160,24 @@ export default function ReservationSuccessPage() {
           <p className='text-lg text-muted-foreground mb-6'>
             Votre paiement a été effectué avec succès.
           </p>
-          <p className='mb-8'>
-            Vous allez être redirigé vers WhatsApp pour envoyer le récapitulatif
-            au chauffeur. Si la redirection échoue, rechargez la page.
+          <p className='mb-4'>
+            Nous allons vous rediriger vers WhatsApp dans{' '}
+            <span className='font-bold'>
+              {countdown} seconde{countdown > 1 ? 's' : ''}
+            </span>{' '}
+            pour envoyer les détails de votre réservation au chauffeur.
+          </p>
+          <p className='text-sm text-muted-foreground mb-8'>
+            (Si la redirection automatique échoue après le décompte, vous pouvez{' '}
+            <a
+              href={whatsappUrl}
+              target='_blank'
+              rel='noopener noreferrer'
+              className='underline'
+            >
+              cliquer ici
+            </a>
+            .)
           </p>
           <Button asChild>
             <Link href='/'>Retour à l'accueil</Link>

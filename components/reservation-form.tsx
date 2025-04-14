@@ -1208,16 +1208,50 @@ export default function ReservationForm() {
             </RadioGroup>
           </div>
 
-          {/* Price Display */}
-          <div className='border p-4 rounded-md bg-gray-50 space-y-2 min-h-[80px]'>
-            <h3 className='font-medium text-center'>Estimation du prix</h3>
-            <div className='text-center text-2xl font-bold'>
+          {/* Detailed Price Display Area */}
+          <div className='mt-4 rounded-md border bg-muted p-4 text-sm'>
+            <h4 className='mb-2 font-medium'>Récapitulatif du Prix Estimé</h4>
+            <div className='space-y-1'>
               {isCalculatingPrice ? (
-                <div className='flex justify-center items-center'>
-                  <Loader2 className='mr-2 h-5 w-5 animate-spin' /> Calcul...
+                <div className='flex items-center text-muted-foreground'>
+                  <Loader2 className='mr-2 h-4 w-4 animate-spin' />
+                  Calcul en cours...
                 </div>
               ) : calculatedPrice !== null ? (
-                `${calculatedPrice} €`
+                <>
+                  {(() => {
+                    const displayBasePrice =
+                      calculatedPrice - (babySeat ? BABY_SEAT_PRICE : 0);
+                    let baseLabel = 'Tarif de base';
+                    if (pricingType === 'fixed')
+                      baseLabel = 'Forfait Destination';
+                    if (pricingType === 'hourly') baseLabel = 'Forfait Horaire';
+                    if (pricingType === 'package')
+                      baseLabel = 'Forfait Journée';
+                    return (
+                      <div className='flex justify-between'>
+                        <span>{baseLabel} :</span>
+                        <span>{displayBasePrice} €</span>
+                      </div>
+                    );
+                  })()}
+                  {babySeat && (
+                    <div className='flex justify-between text-muted-foreground'>
+                      <span>Option Siège Bébé :</span>
+                      <span>+ {BABY_SEAT_PRICE} €</span>
+                    </div>
+                  )}
+                  {booster && (
+                    <div className='flex justify-between text-muted-foreground'>
+                      <span>Option Réhausseur :</span>
+                      <span>Gratuit</span>
+                    </div>
+                  )}
+                  <div className='mt-2 flex justify-between border-t pt-2 font-semibold'>
+                    <span>Prix Total Estimé :</span>
+                    <span>{calculatedPrice} €</span>
+                  </div>
+                </>
               ) : destination === 'other-Autre (préciser ci-dessous)' &&
                 (!pickupAddress || !manualDestination) ? (
                 <span className='text-sm text-gray-500 font-normal'>
@@ -1225,11 +1259,12 @@ export default function ReservationForm() {
                 </span>
               ) : destination === 'other-Autre (préciser ci-dessous)' ? (
                 <span className='text-sm text-gray-500 font-normal'>
-                  Impossible de calculer. Vérifiez les adresses.
+                  Impossible de calculer. Vérifiez les adresses ou
+                  contactez-nous.
                 </span>
               ) : (
                 <span className='text-sm text-gray-500 font-normal'>
-                  Sélectionnez une option ou remplissez les adresses.
+                  Veuillez compléter les informations requises.
                 </span>
               )}
             </div>
