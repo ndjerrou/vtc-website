@@ -47,8 +47,10 @@ export default function ReservationSuccessPage() {
     // In real production: verify session_id with Stripe API on backend
     // For now: assume session_id means success, try to get details
 
-    const storedDetails = localStorage.getItem('pendingBookingDetails');
-    localStorage.removeItem('pendingBookingDetails'); // Clear immediately after reading
+    // Use the correct key to retrieve details
+    const storedDetails = localStorage.getItem('bookingDetails');
+    // Use the correct key to remove details after reading
+    localStorage.removeItem('bookingDetails');
 
     if (!storedDetails) {
       console.error('Booking details not found in localStorage.');

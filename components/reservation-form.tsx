@@ -689,7 +689,7 @@ export default function ReservationForm() {
         );
 
         // Clean up localStorage if payment setup failed
-        localStorage.removeItem('bookingDetails');
+        // REMOVED: localStorage.removeItem('bookingDetails');
         setIsRedirectingToStripe(false); // Stop redirection loader on error
       }
     }
