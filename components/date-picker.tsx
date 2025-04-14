@@ -12,6 +12,7 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from '@/components/ui/popover';
+import { Select, SelectContent, SelectItem } from '@/components/ui/select';
 
 // Add a prop type for the callback
 interface DatePickerProps {
@@ -51,6 +52,7 @@ export function DatePicker({ onDateSelect }: DatePickerProps) {
           mode='single'
           selected={date}
           onSelect={setDate}
+          disabled={{ before: new Date() }}
           initialFocus
           locale={fr}
         />

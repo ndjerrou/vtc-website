@@ -1,6 +1,12 @@
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
-import { Car, MapPin, Phone, Clock, Shield, Star } from 'lucide-react';
+import { Car, MapPin, Phone, Clock, Shield, Star, Menu } from 'lucide-react';
+import {
+  Sheet,
+  SheetClose,
+  SheetContent,
+  SheetTrigger,
+} from '@/components/ui/sheet';
 import {
   Card,
   CardContent,
@@ -13,48 +19,59 @@ import ReservationForm from '@/components/reservation-form';
 import VehicleCarousel from '@/components/vehicle-carousel';
 
 export default function Home() {
+  const navLinks = [
+    { href: '#services', label: 'Services' },
+    { href: '#vehicles', label: 'Véhicules' },
+    { href: '#pricing', label: 'Tarifs' },
+    { href: '#reservation', label: 'Réservation' },
+    { href: '#contact', label: 'Contact' },
+  ];
+
   return (
     <div className='flex flex-col min-h-screen'>
       <header className='sticky top-0 z-50 w-full border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60'>
-        <div className='container flex h-16 items-center'>
+        <div className='container flex h-16 items-center justify-between'>
           <div className='mr-4 flex'>
             <Link href='/' className='flex items-center space-x-2'>
               <Car className='h-6 w-6' />
               <span className='font-bold'>VTC Paris Premium</span>
             </Link>
           </div>
-          <nav className='flex flex-1 items-center justify-end space-x-4 md:space-x-6'>
-            <Link
-              href='#services'
-              className='text-sm font-medium transition-colors hover:text-primary'
-            >
-              Services
-            </Link>
-            <Link
-              href='#vehicles'
-              className='text-sm font-medium transition-colors hover:text-primary'
-            >
-              Véhicules
-            </Link>
-            <Link
-              href='#pricing'
-              className='text-sm font-medium transition-colors hover:text-primary'
-            >
-              Tarifs
-            </Link>
-            <Link
-              href='#reservation'
-              className='text-sm font-medium transition-colors hover:text-primary'
-            >
-              Réservation
-            </Link>
-            <Link
-              href='#contact'
-              className='text-sm font-medium transition-colors hover:text-primary'
-            >
-              Contact
-            </Link>
+          <nav className='hidden md:flex items-center space-x-6'>
+            {navLinks.map(link => (
+              <Link
+                key={link.href}
+                href={link.href}
+                className='text-sm font-medium transition-colors hover:text-primary'
+              >
+                {link.label}
+              </Link>
+            ))}
           </nav>
+          <div className='md:hidden'>
+            <Sheet>
+              <SheetTrigger asChild>
+                <Button variant='outline' size='icon'>
+                  <Menu className='h-6 w-6' />
+                  <span className='sr-only'>Ouvrir le menu</span>
+                </Button>
+              </SheetTrigger>
+              <SheetContent side='right'>
+                <nav className='grid gap-6 text-lg font-medium mt-6'>
+                  {navLinks.map(link => (
+                    <SheetClose key={link.href} asChild>
+                      <Link
+                        href={link.href}
+                        className='flex items-center gap-4 px-2.5 text-muted-foreground hover:text-foreground'
+                      >
+                        {link.label}
+                      </Link>
+                    </SheetClose>
+                  ))}
+                </nav>
+              </SheetContent>
+            </Sheet>
+          </div>
         </div>
       </header>
       <main className='flex-1'>
@@ -345,7 +362,7 @@ export default function Home() {
                   </div>
                 </div>
               </div>
-              <div className='mx-auto w-full max-w-[500px] lg:max-w-none'>
+              <div className='mx-auto w-full max-w-[500px] lg:max-w-none overflow-hidden rounded-xl'>
                 <iframe
                   src='https://www.google.com/maps/embed?pb=!1m18!1m12!1m3!1d2626.504679432013!2d2.238806915673182!3d48.83603347928538!2m3!1f0!2f0!3f0!3m2!1i1024!2i768!4f13.1!3m3!1m2!1s0x47e67a7e5a3c0f3b%3A0xf5c2df1ac7a08f9a!2s6%20Av.%20Andr%C3%A9%20Morizet%2C%2092100%20Boulogne-Billancourt!5e0!3m2!1sfr!2sfr!4v1678886400000!5m2!1sfr!2sfr'
                   width='100%'
@@ -353,38 +370,68 @@ export default function Home() {
                   style={{ border: 0 }}
                   allowFullScreen
                   loading='lazy'
-                  className='rounded-xl'
                 ></iframe>
               </div>
             </div>
           </div>
         </section>
       </main>
-      <footer className='w-full border-t py-6 md:py-0'>
-        <div className='container flex flex-col md:flex-row items-center justify-between gap-4 md:h-16'>
-          <p className='text-sm text-gray-500'>
-            © 2025 VTC Paris Premium. Tous droits réservés.
-          </p>
-          <nav className='flex gap-4 sm:gap-6'>
-            <Link
-              href='#'
-              className='text-sm font-medium hover:underline underline-offset-4'
-            >
-              Mentions légales
-            </Link>
-            <Link
-              href='#'
-              className='text-sm font-medium hover:underline underline-offset-4'
-            >
-              Politique de confidentialité
-            </Link>
-            <Link
-              href='#'
-              className='text-sm font-medium hover:underline underline-offset-4'
-            >
-              CGV
-            </Link>
-          </nav>
+      <footer className='w-full border-t py-6'>
+        <div className='container flex flex-col items-center justify-between gap-6 text-center md:text-left'>
+          <div className='w-full rounded-lg border bg-card text-card-foreground shadow-sm p-4 md:p-6'>
+            <p className='text-lg font-semibold mb-3'>
+              Votre trajet, notre priorité. Voyagez en toute sérénité.
+            </p>
+            <div className='grid grid-cols-1 md:grid-cols-2 gap-3 text-sm'>
+              <div>
+                <span className='font-medium'>
+                  Besoin d'un chauffeur Mercedes ?
+                </span>{' '}
+                Appelez le{' '}
+                <a
+                  href='tel:+33624117756'
+                  className='text-primary hover:underline'
+                >
+                  06 24 11 77 56
+                </a>
+              </div>
+              <div>
+                <span className='font-medium'>Pour une Tesla ?</span> Appelez le{' '}
+                <a
+                  href='tel:+33611700973'
+                  className='text-primary hover:underline'
+                >
+                  06 11 70 09 73
+                </a>
+              </div>
+            </div>
+          </div>
+
+          <div className='w-full flex flex-col md:flex-row items-center justify-between gap-4'>
+            <p className='text-sm text-gray-500'>
+              © 2025 VTC Paris Premium. Tous droits réservés.
+            </p>
+            <nav className='flex gap-4 sm:gap-6'>
+              <Link
+                href='#'
+                className='text-sm font-medium hover:underline underline-offset-4'
+              >
+                Mentions légales
+              </Link>
+              <Link
+                href='#'
+                className='text-sm font-medium hover:underline underline-offset-4'
+              >
+                Politique de confidentialité
+              </Link>
+              <Link
+                href='#'
+                className='text-sm font-medium hover:underline underline-offset-4'
+              >
+                CGV
+              </Link>
+            </nav>
+          </div>
         </div>
       </footer>
     </div>

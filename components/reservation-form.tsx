@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -28,7 +28,10 @@ import {
   DrawerTitle,
   DrawerTrigger,
 } from '@/components/ui/drawer';
-import { ChevronDown, LocateFixed } from 'lucide-react';
+import { ChevronDown, LocateFixed, Loader2 } from 'lucide-react';
+import { useSearchParams } from 'next/navigation';
+import { loadStripe } from '@stripe/stripe-js';
+import { Loader, Libraries } from '@googlemaps/js-api-loader';
 
 const passengerOptions = [
   { value: '1', label: '1 passager' },
@@ -41,41 +44,58 @@ const destinationOptions = [
   {
     value: 'Disneyland Paris, Marne-la-Vallée',
     label: 'Paris - Disney (120€)',
+    price: 120,
   },
-  { value: "Aéroport d'Orly", label: 'Paris rive gauche - Orly (70€)' },
-  { value: "Aéroport d'Orly", label: 'Paris rive droite - Orly (60€)' },
+  {
+    value: "Aéroport d'Orly",
+    label: 'Paris rive gauche - Orly (70€)',
+    price: 70,
+  },
+  {
+    value: "Aéroport d'Orly",
+    label: 'Paris rive droite - Orly (60€)',
+    price: 60,
+  },
   {
     value: 'Aéroport Paris-Charles de Gaulle',
     label: 'Paris rive gauche - Roissy (80€)',
+    price: 80,
   },
   {
     value: 'Aéroport Paris-Charles de Gaulle',
     label: 'Paris rive droite - Roissy (90€)',
+    price: 90,
   },
-  { value: 'Parc Astérix, Plailly', label: 'Paris - Parc Astérix (110€)' },
+  {
+    value: 'Parc Astérix, Plailly',
+    label: 'Paris - Parc Astérix (110€)',
+    price: 110,
+  },
   {
     value: 'La Vallée Village, Serris',
     label: 'Paris - Marne-la-Vallée village (110€)',
+    price: 110,
   },
   {
     value: 'Château de Versailles',
     label: 'Paris - Château de Versailles (80€)',
+    price: 80,
   },
-  { value: 'other', label: 'Autre (préciser ci-dessous)' },
+  { value: 'other', label: 'Autre (préciser ci-dessous)', price: null },
 ];
 
 const hourOptions = [
-  { value: '1', label: '1 heure (70€)' },
-  { value: '2', label: '2 heures (140€)' },
-  { value: '3', label: '3 heures (210€)' },
-  { value: '4', label: '4 heures (280€)' },
-  { value: '5', label: '5 heures (350€)' },
-  { value: '6', label: '6 heures (420€)' },
+  { value: '1', label: '1 heure (70€)', price: 70 },
+  { value: '2', label: '2 heures (140€)', price: 140 },
+  { value: '3', label: '3 heures (210€)', price: 210 },
+  { value: '4', label: '4 heures (280€)', price: 280 },
+  { value: '5', label: '5 heures (350€)', price: 350 },
+  { value: '6', label: '6 heures (420€)', price: 420 },
 ];
 
 const packageTypeOptions = [
-  { value: 'half', label: 'Demi-journée - 4 heures (250€)' },
-  { value: 'full', label: 'Journée complète (450€)' },
+  { value: 'half', label: 'Demi-journée - 4 heures (250€)', price: 250 },
+  { value: 'full', label: 'Journée complète (450€)', price: 450 },
 ];
 
 const vehicleOptions = [
@@ -83,13 +103,39 @@ const vehicleOptions = [
   { value: 'Tesla Model Y', label: 'Tesla Model Y' },
 ];
 
-// Type for coordinates state
+const KM_PRICE = 2;
+const BABY_SEAT_PRICE = 10;
+const GPS_PLACEHOLDER = '[Position GPS actuelle]';
+
 interface Coordinates {
   lat: number;
   lon: number;
 }
 
-const GPS_PLACEHOLDER = '[Position GPS actuelle]'; // Define placeholder
+interface BookingDetails {
+  name: string;
+  phone: string;
+  email?: string;
+  passengers: string;
+  pricingType: string;
+  displayPickupAddress: string;
+  pickupMapsUrl?: string;
+  displayDestination: string;
+  destinationMapsUrl?: string;
+  durationLabel?: string;
+  date: string;
+  time: string;
+  babySeat: boolean;
+  booster: boolean;
+  vehicle: string;
+  notes?: string;
+  targetWhatsAppNumber: string;
+  price: string;
+}
+
+const stripePromise = loadStripe(
+  process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY || ''
+);
 
 export default function ReservationForm() {
   const [name, setName] = useState<string>('');
@@ -103,15 +149,282 @@ export default function ReservationForm() {
   const [packageType, setPackageType] = useState<string>('');
   const [pickupAddress, setPickupAddress] = useState<string>('');
   const [pickupCoordinates, setPickupCoordinates] =
-    useState<Coordinates | null>(null); // State for GPS coords
+    useState<Coordinates | null>(null);
   const [date, setDate] = useState<Date | undefined>(undefined);
   const [time, setTime] = useState<string>('');
   const [babySeat, setBabySeat] = useState<boolean>(false);
   const [booster, setBooster] = useState<boolean>(false);
   const [vehicle, setVehicle] = useState<string>('');
   const [notes, setNotes] = useState<string>('');
+  const [paymentMethod, setPaymentMethod] = useState<'delivery' | 'card'>(
+    'card'
+  );
+  const [calculatedPrice, setCalculatedPrice] = useState<number | null>(null);
+  const [isCalculatingPrice, setIsCalculatingPrice] = useState<boolean>(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
+  const [isRedirectingToStripe, setIsRedirectingToStripe] =
+    useState<boolean>(false);
+
+  // Refs for Autocomplete input elements
+  const pickupInputRef = useRef<HTMLInputElement>(null);
+  const destinationInputRef = useRef<HTMLInputElement>(null);
+
+  // Refs for Autocomplete instances (to manage cleanup)
+  const pickupAutocompleteRef = useRef<google.maps.places.Autocomplete | null>(
+    null
+  );
+  const destinationAutocompleteRef =
+    useRef<google.maps.places.Autocomplete | null>(null);
 
   const isMobile = useIsMobile();
+
+  // Effect for Google Maps Autocomplete Initialization
+  useEffect(() => {
+    let googleMapsApi: typeof google | null = null;
+    const apiKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY;
+
+    if (!apiKey) {
+      console.error(
+        'API Key Error: NEXT_PUBLIC_GOOGLE_MAPS_API_KEY is not set.'
+      );
+      setSubmitError('Erreur de configuration serveur.');
+      return;
+    }
+
+    const loader = new Loader({
+      apiKey: apiKey,
+      version: 'weekly',
+      libraries: ['places'] as Libraries,
+    });
+
+    loader
+      .load()
+      .then(google => {
+        googleMapsApi = google;
+        if (!google?.maps?.places) {
+          console.error('Google Maps Places library failed to load.');
+          setSubmitError('Erreur: Service Google Places indisponible.');
+          return;
+        }
+
+        const autocompleteOptions: google.maps.places.AutocompleteOptions = {
+          componentRestrictions: { country: 'fr' },
+          fields: ['formatted_address', 'geometry'],
+          types: ['address'],
+        };
+
+        // Initialize Pickup Autocomplete
+        if (pickupInputRef.current && !pickupAutocompleteRef.current) {
+          const autocomplete = new google.maps.places.Autocomplete(
+            pickupInputRef.current,
+            autocompleteOptions
+          );
+          pickupAutocompleteRef.current = autocomplete;
+          google.maps.event.addListener(autocomplete, 'place_changed', () => {
+            const place = autocomplete.getPlace();
+            if (place.formatted_address) {
+              setPickupAddress(place.formatted_address);
+              setPickupCoordinates(null);
+              setSubmitError(null);
+            } else {
+              console.warn(
+                'Autocomplete selected place has no formatted_address:',
+                place
+              );
+            }
+          });
+        }
+
+        // Initialize Destination Autocomplete (only if manual destination is visible)
+        if (
+          destinationInputRef.current &&
+          pricingType === 'fixed' &&
+          destination === 'other-Autre (préciser ci-dessous)' &&
+          !destinationAutocompleteRef.current
+        ) {
+          const autocomplete = new google.maps.places.Autocomplete(
+            destinationInputRef.current,
+            autocompleteOptions
+          );
+          destinationAutocompleteRef.current = autocomplete;
+          google.maps.event.addListener(autocomplete, 'place_changed', () => {
+            const place = autocomplete.getPlace();
+            if (place.formatted_address) {
+              setManualDestination(place.formatted_address);
+              setSubmitError(null);
+            } else {
+              console.warn(
+                'Autocomplete selected place has no formatted_address:',
+                place
+              );
+            }
+          });
+        } else if (
+          destinationAutocompleteRef.current &&
+          (pricingType !== 'fixed' ||
+            destination !== 'other-Autre (préciser ci-dessous)')
+        ) {
+          // Cleanup destination autocomplete if the input is no longer visible
+          if (google && google.maps && google.maps.event) {
+            google.maps.event.clearInstanceListeners(
+              destinationAutocompleteRef.current
+            );
+          }
+          destinationAutocompleteRef.current = null;
+          // Attempt to remove pac-container if it remains
+          const pacContainers = document.querySelectorAll('.pac-container');
+          pacContainers.forEach(container => container.remove());
+        }
+      })
+      .catch(e => {
+        console.error('Error loading Google Maps API:', e);
+        setSubmitError('Erreur chargement Google Maps.');
+      });
+
+    // General Cleanup function for component unmount
+    return () => {
+      if (googleMapsApi && googleMapsApi.maps && googleMapsApi.maps.event) {
+        const mapsEvent = googleMapsApi.maps.event;
+        if (pickupAutocompleteRef.current)
+          mapsEvent.clearInstanceListeners(pickupAutocompleteRef.current);
+        if (destinationAutocompleteRef.current)
+          mapsEvent.clearInstanceListeners(destinationAutocompleteRef.current);
+      }
+      pickupAutocompleteRef.current = null;
+      destinationAutocompleteRef.current = null;
+      // Attempt to remove pac-container if it remains on unmount
+      const pacContainers = document.querySelectorAll('.pac-container');
+      pacContainers.forEach(container => container.remove());
+    };
+  }, [pricingType, destination]);
+
+  useEffect(() => {
+    const calculateDynamicPrice = async () => {
+      let basePrice: number | null = null;
+      let needsDistanceCalc = false;
+      let originForCalc: string | google.maps.LatLngLiteral | null = null;
+      let destForCalc: string | null = null;
+
+      if (pricingType === 'fixed') {
+        if (destination === 'other-Autre (préciser ci-dessous)') {
+          if (manualDestination && (pickupAddress || pickupCoordinates)) {
+            needsDistanceCalc = true;
+            originForCalc = pickupCoordinates
+              ? { lat: pickupCoordinates.lat, lng: pickupCoordinates.lon }
+              : pickupAddress;
+            destForCalc = manualDestination;
+          }
+        } else {
+          basePrice =
+            destinationOptions.find(
+              opt => `${opt.value}-${opt.label}` === destination
+            )?.price ?? null;
+        }
+      } else if (pricingType === 'hourly') {
+        basePrice = hourOptions.find(opt => opt.value === hours)?.price ?? null;
+      } else if (pricingType === 'package') {
+        basePrice =
+          packageTypeOptions.find(opt => opt.value === packageType)?.price ??
+          null;
+      }
+
+      if (needsDistanceCalc && destForCalc && originForCalc) {
+        setIsCalculatingPrice(true);
+        setCalculatedPrice(null);
+        let distanceError = null;
+
+        try {
+          const apiKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY;
+          if (!apiKey) {
+            throw new Error('Google Maps API key is missing.');
+          }
+
+          const loader = new Loader({
+            apiKey: apiKey,
+            version: 'weekly',
+            libraries: ['places'] as Libraries,
+          });
+
+          const google = await loader.load();
+          if (!google?.maps?.DirectionsService) {
+            throw new Error('Google Maps Directions Service failed to load.');
+          }
+          const directionsService = new google.maps.DirectionsService();
+
+          console.log(
+            'Calculating distance from:',
+            originForCalc,
+            'to:',
+            destForCalc
+          );
+
+          const request: google.maps.DirectionsRequest = {
+            origin: originForCalc,
+            destination: destForCalc,
+            travelMode: google.maps.TravelMode.DRIVING,
+          };
+
+          const response = await directionsService.route(request);
+
+          if (
+            response.routes.length > 0 &&
+            response.routes[0].legs.length > 0 &&
+            response.routes[0].legs[0].distance
+          ) {
+            const distanceInMeters = response.routes[0].legs[0].distance.value;
+            const distanceInKm = distanceInMeters / 1000;
+            basePrice = Math.round(distanceInKm * KM_PRICE);
+            console.log(
+              `Distance: ${distanceInKm.toFixed(
+                2
+              )} km, Calculated Price: ${basePrice}€`
+            );
+          } else {
+            throw new Error(
+              'Could not calculate distance. Check addresses or route feasibility.'
+            );
+          }
+        } catch (error: any) {
+          console.error('Error calculating distance with Google Maps:', error);
+          distanceError = `Erreur calcul: ${error.message}`;
+          basePrice = null;
+        } finally {
+          setIsCalculatingPrice(false);
+          setSubmitError(distanceError);
+        }
+      } else if (needsDistanceCalc) {
+        setCalculatedPrice(null);
+      }
+
+      let finalPrice = basePrice;
+      if (finalPrice !== null && babySeat) {
+        finalPrice += BABY_SEAT_PRICE;
+      }
+
+      if (!isCalculatingPrice || !needsDistanceCalc) {
+        setCalculatedPrice(finalPrice);
+        if (!needsDistanceCalc) {
+          setSubmitError(null);
+        }
+      }
+    };
+
+    const timer = setTimeout(() => {
+      calculateDynamicPrice();
+    }, 800);
+
+    return () => clearTimeout(timer);
+  }, [
+    pricingType,
+    destination,
+    manualDestination,
+    pickupAddress,
+    pickupCoordinates,
+    hours,
+    packageType,
+    babySeat,
+    booster,
+  ]);
 
   const resetForm = () => {
     setName('');
@@ -124,682 +437,373 @@ export default function ReservationForm() {
     setHours('');
     setPackageType('');
     setPickupAddress('');
-    setPickupCoordinates(null); // Reset coordinates
+    setPickupCoordinates(null);
     setDate(undefined);
     setTime('');
     setBabySeat(false);
     setBooster(false);
     setVehicle('');
     setNotes('');
+    setPaymentMethod('card');
+    setCalculatedPrice(null);
+    setIsCalculatingPrice(false);
+    setSubmitError(null);
+    // Clear autocomplete inputs visually (refs handle instances)
+    if (pickupInputRef.current) pickupInputRef.current.value = '';
+    if (destinationInputRef.current) destinationInputRef.current.value = '';
   };
 
-  // Function to get current location
   const handleGetCurrentLocation = () => {
-    if (!navigator.geolocation) {
-      alert("La géolocalisation n'est pas supportée par votre navigateur.");
-      return;
-    }
-
-    navigator.geolocation.getCurrentPosition(
-      position => {
-        const coords = {
-          lat: position.coords.latitude,
-          lon: position.coords.longitude,
-        };
-        setPickupCoordinates(coords);
-        setPickupAddress(GPS_PLACEHOLDER); // Set placeholder text
-        alert('Position actuelle récupérée !');
-      },
-      error => {
-        console.error('Error getting location: ', error);
-        let message = 'Impossible de récupérer votre position actuelle.';
-        if (error.code === error.PERMISSION_DENIED) {
-          message = 'Vous avez refusé la permission de géolocalisation.';
-        } else if (error.code === error.POSITION_UNAVAILABLE) {
-          message = 'Information de localisation non disponible.';
-        } else if (error.code === error.TIMEOUT) {
-          message = 'Timeout lors de la récupération de la position.';
+    if (navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        position => {
+          setPickupCoordinates({
+            lat: position.coords.latitude,
+            lon: position.coords.longitude,
+          });
+          setPickupAddress(GPS_PLACEHOLDER);
+          setSubmitError(null);
+          // Clear potential error from autocomplete failure
+          if (pickupInputRef.current)
+            pickupInputRef.current.value = GPS_PLACEHOLDER; // Update input visually
+        },
+        error => {
+          console.error('Error getting location', error);
+          setSubmitError("Impossible d'obtenir la position GPS.");
         }
-        alert(message);
-      }
-    );
+      );
+    } else {
+      setSubmitError(
+        "La géolocalisation n'est pas supportée par ce navigateur."
+      );
+    }
   };
 
-  const handleSubmit = (e: React.FormEvent<HTMLFormElement>) => {
+  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
+    setSubmitError(null);
 
-    // Validation updates
-    const isDestinationInvalid =
-      pricingType === 'fixed' && destination === '' && manualDestination === '';
-    const isManualDestinationInvalid =
-      pricingType === 'fixed' &&
-      destination === 'other' &&
-      manualDestination === '';
-    // Check if pickup is valid (either text address provided OR GPS coords exist)
-    const isPickupAddressValid =
-      (pickupAddress !== '' && pickupAddress !== GPS_PLACEHOLDER) ||
-      pickupCoordinates !== null;
+    const selectedDate = date
+      ? format(date, 'dd/MM/yyyy')
+      : 'Date non spécifiée';
+    const selectedTime = time || 'Heure non spécifiée';
+    const selectedVehicle =
+      vehicleOptions.find(opt => opt.value === vehicle)?.label ||
+      'Véhicule non spécifié';
+    const passengerCount =
+      passengerOptions.find(opt => opt.value === passengers)?.label ||
+      'Nombre non spécifié';
 
-    if (
-      !name ||
-      !phone ||
-      !date ||
-      !time ||
-      !isPickupAddressValid || // Updated pickup validation
-      (pricingType === 'hourly' && !hours) ||
-      (pricingType === 'package' && !packageType) ||
-      isDestinationInvalid ||
-      isManualDestinationInvalid
-    ) {
-      alert(
-        "Veuillez remplir tous les champs obligatoires (*), y compris l'adresse de prise en charge (manuellement ou via GPS)."
-      );
-      return;
-    }
+    const targetWhatsAppNumber =
+      vehicle === 'Tesla Model Y' ? '+33611700973' : '+33624117756';
 
-    // Determine WhatsApp number based on vehicle
-    let phoneNumber = '+33624117756'; // Default (Mercedes)
-    if (vehicle === 'Tesla Model Y') {
-      phoneNumber = '+33611700973'; // Tesla number
-    }
+    let displayDestination = 'N/A';
+    let destinationMapsUrl: string | undefined = undefined;
+    let durationLabel: string | undefined = undefined;
+    let finalPriceDescription = 'Non calculé';
 
-    // Determine Destinations & Generate Links
-    let displayDestination = '';
-    let mapQueryDestination = '';
-    let destinationMapsUrl = '';
-    let displayPickupAddress = pickupAddress; // Default to text input
-    let pickupMapsUrl = '';
-
-    // Destination Logic (for fixed price only)
     if (pricingType === 'fixed') {
-      if (destination === 'other') {
+      if (destination === 'other-Autre (préciser ci-dessous)') {
         displayDestination = manualDestination;
-        mapQueryDestination = manualDestination;
+        destinationMapsUrl = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(
+          manualDestination
+        )}`;
       } else {
-        const selectedOption = destinationOptions.find(
-          opt => opt.value === destination
+        const selectedOpt = destinationOptions.find(
+          opt => `${opt.value}-${opt.label}` === destination
         );
-        displayDestination = selectedOption
-          ? selectedOption.label
-          : destination;
-        mapQueryDestination = selectedOption
-          ? selectedOption.value
-          : destination;
+        displayDestination = selectedOpt?.label || 'Destination non spécifiée';
+        if (selectedOpt?.value) {
+          destinationMapsUrl = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(
+            selectedOpt.value
+          )}`;
+        }
       }
-      if (mapQueryDestination) {
-        const encodedDestination = encodeURIComponent(mapQueryDestination);
-        destinationMapsUrl = `https://www.google.com/maps/search/?api=1&query=${encodedDestination}`;
-      }
-    }
-
-    // Pickup Logic
-    if (pickupCoordinates) {
-      displayPickupAddress = GPS_PLACEHOLDER; // Keep placeholder for display
-      pickupMapsUrl = `https://www.google.com/maps?q=${pickupCoordinates.lat},${pickupCoordinates.lon}`;
-    } else if (pickupAddress) {
-      // displayPickupAddress remains pickupAddress
-      const encodedPickup = encodeURIComponent(pickupAddress);
-      pickupMapsUrl = `https://www.google.com/maps/search/?api=1&query=${encodedPickup}`;
-    }
-
-    // Build WhatsApp Message
-    let message = `Nouvelle réservation VTC Paris Premium :\n`;
-    message += `--------------------------------------\n`;
-    message += `Nom : ${name}\n`;
-    message += `Téléphone : ${phone}\n`;
-    if (email) message += `Email : ${email}\n`;
-    message += `Passagers : ${
-      passengerOptions.find(p => p.value === passengers)?.label || passengers
-    }\n`;
-    message += `--------------------------------------\n`;
-
-    // Add Service Details
-    message += `Adresse Prise en Charge : ${displayPickupAddress}\n`; // Use determined display text
-    if (pickupMapsUrl) {
-      message += `Lien GPS (Prise en charge) : ${pickupMapsUrl}\n`; // Add pickup map link
-    }
-
-    if (pricingType === 'fixed') {
-      message += `Type : Forfait destination\n`;
-      message += `Destination : ${displayDestination}\n`;
-      if (destinationMapsUrl) {
-        message += `Lien GPS (Destination) : ${destinationMapsUrl}\n`; // Add destination map link
+      if (calculatedPrice !== null) {
+        finalPriceDescription = `${calculatedPrice}€`;
       }
     } else if (pricingType === 'hourly') {
-      message += `Type : Mise à disposition\n`;
-      message += `Durée : ${
-        hourOptions.find(h => h.value === hours)?.label || hours + ' heure(s)'
-      }\n`;
-      // Pickup address already added above
+      durationLabel =
+        hourOptions.find(opt => opt.value === hours)?.label ||
+        'Durée non spécifiée';
+      displayDestination = `Mise à disposition (${durationLabel})`;
+      if (calculatedPrice !== null) {
+        finalPriceDescription = `${calculatedPrice}€`;
+      }
     } else if (pricingType === 'package') {
-      message += `Type : Forfait journée/demi-journée\n`;
-      message += `Forfait : ${
-        packageTypeOptions.find(p => p.value === packageType)?.label ||
-        packageType
-      }\n`;
-      // Pickup address already added above
+      durationLabel =
+        packageTypeOptions.find(opt => opt.value === packageType)?.label ||
+        'Forfait non spécifié';
+      displayDestination = `Forfait (${durationLabel})`;
+      if (calculatedPrice !== null) {
+        finalPriceDescription = `${calculatedPrice}€`;
+      }
     }
 
-    // Add Date, Time, Options
-    message += `--------------------------------------\n`;
-    message += `Date : ${
-      date ? format(date, 'dd/MM/yyyy') : 'Non spécifiée'
-    }\n`;
-    message += `Heure : ${time || 'Non spécifiée'}\n`;
-    message += `--------------------------------------\n`;
-    message += `Options :
-`;
-    message += `  - Siège bébé : ${babySeat ? 'Oui (+10€)' : 'Non'}\n`;
-    message += `  - Rehausseur : ${booster ? 'Oui (Gratuit)' : 'Non'}\n`;
-    message += `Véhicule préféré : ${
-      vehicleOptions.find(v => v.value === vehicle)?.label ||
-      vehicle ||
-      'Non spécifié'
-    }\n`;
-    if (notes)
-      message += `--------------------------------------\nNotes : ${notes}\n`;
+    let displayPickupAddress = pickupAddress;
+    let pickupMapsUrl: string | undefined = undefined;
 
-    // Generate WhatsApp URL and Open
-    const whatsappUrl = `https://wa.me/${phoneNumber}?text=${encodeURIComponent(
-      message
-    )}`;
-    window.open(whatsappUrl, '_blank');
+    if (pickupCoordinates) {
+      displayPickupAddress = 'Position GPS actuelle';
+      pickupMapsUrl = `https://www.google.com/maps?q=${pickupCoordinates.lat},${pickupCoordinates.lon}`;
+    } else if (pickupAddress) {
+      pickupMapsUrl = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(
+        pickupAddress
+      )}`;
+    }
 
-    alert(
-      'Merci pour votre réservation ! Nous vous contacterons bientôt. Vous allez être redirigé vers WhatsApp pour envoyer le récapitulatif.'
-    );
-    resetForm();
+    const bookingDetails: BookingDetails = {
+      name,
+      phone,
+      email,
+      passengers: passengerCount,
+      pricingType,
+      displayPickupAddress,
+      pickupMapsUrl,
+      displayDestination,
+      destinationMapsUrl,
+      durationLabel,
+      date: selectedDate,
+      time: selectedTime,
+      babySeat,
+      booster,
+      vehicle: selectedVehicle,
+      notes,
+      targetWhatsAppNumber,
+      price: finalPriceDescription,
+    };
+
+    if (paymentMethod === 'delivery') {
+      // Generate WhatsApp message for 'Payer à bord'
+      const deliveryMessage = `Nouvelle réservation VTC Paris Premium :
+      ------------------------------------
+      Client : ${bookingDetails.name}
+      Téléphone : ${bookingDetails.phone}
+      ${bookingDetails.email ? `Email : ${bookingDetails.email}` : ''}
+      Passagers : ${bookingDetails.passengers}
+      ------------------------------------
+      Prise en charge : ${bookingDetails.displayPickupAddress}
+      ${
+        bookingDetails.pickupMapsUrl
+          ? `Lien Maps : ${bookingDetails.pickupMapsUrl}`
+          : ''
+      }
+      Destination : ${bookingDetails.displayDestination || 'N/A'}
+      ${
+        bookingDetails.destinationMapsUrl
+          ? `Lien Maps : ${bookingDetails.destinationMapsUrl}`
+          : ''
+      }
+      ------------------------------------
+      Date : ${bookingDetails.date}
+      Heure : ${bookingDetails.time}
+      Véhicule : ${bookingDetails.vehicle}
+      ${bookingDetails.babySeat ? 'Options : Siège bébé (+10€)\n' : ''}${
+        bookingDetails.booster ? 'Options : Réhausseur (Gratuit)\n' : ''
+      }
+      ${bookingDetails.notes ? `Notes : ${bookingDetails.notes}` : ''}
+      ------------------------------------
+      Mode de paiement : Payer à bord
+      Prix estimé : ${bookingDetails.price}
+      `;
+
+      const whatsappUrl = `https://wa.me/${
+        bookingDetails.targetWhatsAppNumber
+      }?text=${encodeURIComponent(deliveryMessage)}`;
+
+      window.open(whatsappUrl, '_blank');
+      alert(
+        'Votre réservation a été enregistrée ! Vous allez être redirigé vers WhatsApp pour envoyer le récapitulatif.'
+      );
+      resetForm();
+    } else if (paymentMethod === 'card') {
+      // Handle card payment
+      if (calculatedPrice === null || isCalculatingPrice) {
+        setSubmitError(
+          "Le prix n'est pas encore calculé ou une erreur est survenue. Veuillez vérifier les détails."
+        );
+        return;
+      }
+
+      setIsRedirectingToStripe(true); // Start redirection loader
+      setSubmitError(null); // Clear previous errors before starting
+
+      try {
+        // 1. Store booking details temporarily (e.g., localStorage)
+        localStorage.setItem('bookingDetails', JSON.stringify(bookingDetails));
+
+        // 2. Call the API route to create a checkout session
+        const response = await fetch('/api/create-checkout-session', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            price: calculatedPrice * 100, // Price in cents
+            productDescription: `Réservation VTC: ${displayPickupAddress} -> ${displayDestination}`,
+          }),
+        });
+
+        if (!response.ok) {
+          const errorData = await response.json();
+          throw new Error(
+            errorData.error || 'Échec de la création de la session de paiement.'
+          );
+        }
+
+        const { sessionId } = await response.json();
+
+        // 3. Redirect to Stripe Checkout
+        const stripe = await stripePromise;
+        if (!stripe) {
+          throw new Error("Stripe.js n'a pas pu être chargé.");
+        }
+        const { error } = await stripe.redirectToCheckout({ sessionId });
+
+        if (error) {
+          throw error;
+        }
+        // No need to reset form here, redirection handles it.
+        // If redirection fails, the error is caught below.
+      } catch (error: any) {
+        // Log the full error object for detailed debugging
+        console.error('Caught payment error object:', error);
+
+        // Construct a more informative error message
+        let errorMessage = 'Une erreur inconnue est survenue lors du paiement.';
+        if (error instanceof Error && error.message) {
+          errorMessage = error.message;
+          // Handle the specific case where message itself is [object Object]
+          if (errorMessage === '[object Object]') {
+            errorMessage = `Erreur technique (détails dans la console).`;
+          }
+        } else if (typeof error === 'object' && error !== null) {
+          // Attempt to get Stripe error type or stringify
+          errorMessage = error.type || error.code || JSON.stringify(error);
+        } else if (typeof error === 'string') {
+          errorMessage = error;
+        }
+
+        setSubmitError(
+          `Erreur lors de la préparation du paiement : ${errorMessage}`
+        );
+
+        // Clean up localStorage if payment setup failed
+        localStorage.removeItem('bookingDetails');
+        setIsRedirectingToStripe(false); // Stop redirection loader on error
+      }
+    }
   };
 
+  // --- Modified onChange Handlers ---
+  const handlePickupChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setPickupAddress(e.target.value);
+    // If user types manually after selecting GPS or Autocomplete, clear GPS coords
+    if (pickupCoordinates) {
+      setPickupCoordinates(null);
+    }
+  };
+
+  const handleManualDestinationChange = (
+    e: React.ChangeEvent<HTMLInputElement>
+  ) => {
+    setManualDestination(e.target.value);
+  };
+
+  // --- Helper function for Select/Drawer labels ---
   const getLabel = (
     value: string,
-    options: { value: string; label: string }[],
-    placeholder: string = 'Sélectionnez' // Default placeholder
-  ) => {
-    if (value === 'other') return 'Autre (préciser ci-dessous)';
-    return options.find(opt => opt.value === value)?.label || placeholder;
+    options: ReadonlyArray<{ value: string; label: string }>,
+    placeholder: string = 'Sélectionnez'
+  ): string => {
+    if (!value) return placeholder;
+
+    let selectedOption: { value: string; label: string } | undefined;
+
+    if (options === destinationOptions) {
+      // Handle specific display value for 'other' destination key
+      if (value === 'other-Autre (préciser ci-dessous)')
+        return 'Autre (préciser ci-dessous)';
+      // Find based on the unique 'value-label' key
+      selectedOption = options.find(
+        opt => `${opt.value}-${opt.label}` === value
+      );
+    } else {
+      // For other option types, find based on simple value
+      selectedOption = options.find(opt => opt.value === value);
+    }
+
+    // Return label, fallback to value itself, then placeholder
+    return selectedOption?.label || value || placeholder;
   };
 
+  // --- JSX --- //
   return (
     <Card>
       <CardContent className='pt-6'>
         <form onSubmit={handleSubmit} className='space-y-6'>
-          <div className='space-y-4'>
-            <div className='grid grid-cols-1 md:grid-cols-2 gap-4'>
-              <div className='space-y-2'>
-                <Label htmlFor='name'>Nom complet *</Label>
-                <Input
-                  id='name'
-                  placeholder='Votre nom'
-                  required
-                  value={name}
-                  onChange={e => setName(e.target.value)}
-                />
-              </div>
-              <div className='space-y-2'>
-                <Label htmlFor='phone'>Téléphone *</Label>
-                <Input
-                  id='phone'
-                  placeholder='Votre numéro de téléphone'
-                  required
-                  value={phone}
-                  onChange={e => setPhone(e.target.value)}
-                />
-              </div>
-            </div>
-
-            <div className='grid grid-cols-1 md:grid-cols-2 gap-4'>
-              <div className='space-y-2'>
-                <Label htmlFor='email'>Email</Label>
-                <Input
-                  id='email'
-                  type='email'
-                  placeholder='Votre email'
-                  value={email}
-                  onChange={e => setEmail(e.target.value)}
-                />
-              </div>
-              <div className='space-y-2'>
-                <Label htmlFor='passengers'>Nombre de passagers</Label>
-                {isMobile ? (
-                  <Drawer>
-                    <DrawerTrigger asChild>
-                      <Button
-                        variant='outline'
-                        className='w-full justify-between font-normal'
-                      >
-                        {getLabel(passengers, passengerOptions)}
-                        <ChevronDown className='h-4 w-4 opacity-50' />
-                      </Button>
-                    </DrawerTrigger>
-                    <DrawerContent>
-                      <DrawerHeader>
-                        <DrawerTitle>Nombre de passagers</DrawerTitle>
-                      </DrawerHeader>
-                      <div className='p-4 pb-0 grid grid-cols-1 gap-2'>
-                        {passengerOptions.map(option => (
-                          <DrawerClose key={option.value} asChild>
-                            <Button
-                              variant={
-                                passengers === option.value
-                                  ? 'secondary'
-                                  : 'ghost'
-                              }
-                              className='w-full justify-start text-left h-auto py-2'
-                              onClick={() => setPassengers(option.value)}
-                            >
-                              {option.label}
-                            </Button>
-                          </DrawerClose>
-                        ))}
-                      </div>
-                      <DrawerFooter>
-                        <DrawerClose asChild>
-                          <Button variant='outline'>Annuler</Button>
-                        </DrawerClose>
-                      </DrawerFooter>
-                    </DrawerContent>
-                  </Drawer>
-                ) : (
-                  <Select value={passengers} onValueChange={setPassengers}>
-                    <SelectTrigger id='passengers'>
-                      <SelectValue placeholder='Sélectionnez' />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {passengerOptions.map(option => (
-                        <SelectItem key={option.value} value={option.value}>
-                          {option.label}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                )}
-              </div>
-            </div>
-
+          <div className='grid grid-cols-1 gap-4 sm:grid-cols-2'>
             <div className='space-y-2'>
-              <Label>Type de service *</Label>
-              <RadioGroup value={pricingType} onValueChange={setPricingType}>
-                <div className='flex items-center space-x-2'>
-                  <RadioGroupItem value='fixed' id='fixed' />
-                  <Label htmlFor='fixed' className='font-normal'>
-                    Forfait destination
-                  </Label>
-                </div>
-                <div className='flex items-center space-x-2'>
-                  <RadioGroupItem value='hourly' id='hourly' />
-                  <Label htmlFor='hourly' className='font-normal'>
-                    Mise à disposition (horaire)
-                  </Label>
-                </div>
-                <div className='flex items-center space-x-2'>
-                  <RadioGroupItem value='package' id='package' />
-                  <Label htmlFor='package' className='font-normal'>
-                    Forfait demi-journée/journée
-                  </Label>
-                </div>
-              </RadioGroup>
+              <Label htmlFor='name'>Nom</Label>
+              <Input
+                id='name'
+                placeholder='Votre nom complet'
+                value={name}
+                onChange={e => setName(e.target.value)}
+                required
+              />
             </div>
-
-            {pricingType === 'fixed' && (
-              <div className='space-y-4'>
-                <div className='space-y-2'>
-                  <Label htmlFor='destination'>Destination *</Label>
-                  {isMobile ? (
-                    <Drawer>
-                      <DrawerTrigger asChild>
-                        <Button
-                          variant='outline'
-                          className='w-full justify-between font-normal'
-                        >
-                          {getLabel(destination, destinationOptions)}
-                          <ChevronDown className='h-4 w-4 opacity-50' />
-                        </Button>
-                      </DrawerTrigger>
-                      <DrawerContent>
-                        <DrawerHeader>
-                          <DrawerTitle>Destination</DrawerTitle>
-                        </DrawerHeader>
-                        <div className='p-4 pb-0 grid grid-cols-1 gap-2 max-h-[50vh] overflow-y-auto'>
-                          {destinationOptions.map(option => (
-                            <DrawerClose key={option.value} asChild>
-                              <Button
-                                variant={
-                                  destination === option.value
-                                    ? 'secondary'
-                                    : 'ghost'
-                                }
-                                className='w-full justify-start text-left h-auto py-2'
-                                onClick={() => {
-                                  setDestination(option.value);
-                                  if (option.value !== 'other')
-                                    setManualDestination('');
-                                }}
-                              >
-                                {option.label}
-                              </Button>
-                            </DrawerClose>
-                          ))}
-                        </div>
-                        <DrawerFooter>
-                          <DrawerClose asChild>
-                            <Button variant='outline'>Annuler</Button>
-                          </DrawerClose>
-                        </DrawerFooter>
-                      </DrawerContent>
-                    </Drawer>
-                  ) : (
-                    <Select
-                      value={destination}
-                      onValueChange={value => {
-                        setDestination(value);
-                        if (value !== 'other') setManualDestination('');
-                      }}
-                      required={pricingType === 'fixed'}
-                    >
-                      <SelectTrigger id='destination'>
-                        <SelectValue placeholder='Sélectionnez une destination'>
-                          {getLabel(destination, destinationOptions) ===
-                          'Sélectionnez'
-                            ? null
-                            : getLabel(destination, destinationOptions)}
-                        </SelectValue>
-                      </SelectTrigger>
-                      <SelectContent>
-                        {destinationOptions.map(option => (
-                          <SelectItem key={option.value} value={option.value}>
-                            {option.label}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  )}
-                </div>
-                {destination === 'other' && (
-                  <div className='space-y-2'>
-                    <Label htmlFor='manual-destination'>
-                      Précisez la destination *
-                    </Label>
-                    <Input
-                      id='manual-destination'
-                      placeholder='Adresse complète de destination'
-                      value={manualDestination}
-                      onChange={e => setManualDestination(e.target.value)}
-                      required={destination === 'other'}
-                    />
-                  </div>
-                )}
-                <div className='space-y-2'>
-                  <Label htmlFor='pickup-fixed'>
-                    Adresse de prise en charge *
-                  </Label>
-                  <div className='flex items-center gap-2'>
-                    <Input
-                      id='pickup-fixed'
-                      placeholder='Adresse complète ou utilisez le GPS'
-                      value={pickupAddress}
-                      onChange={e => {
-                        setPickupAddress(e.target.value);
-                        setPickupCoordinates(null); // Clear coords if user types manually
-                      }}
-                    />
-                    <Button
-                      type='button'
-                      variant='outline'
-                      size='icon'
-                      onClick={handleGetCurrentLocation}
-                      aria-label='Utiliser la position actuelle'
-                    >
-                      <LocateFixed className='h-4 w-4' />
-                    </Button>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {pricingType === 'hourly' && (
-              <div className='space-y-4'>
-                <div className='space-y-2'>
-                  <Label htmlFor='hours'>Nombre d'heures *</Label>
-                  {isMobile ? (
-                    <Drawer>
-                      <DrawerTrigger asChild>
-                        <Button
-                          variant='outline'
-                          className='w-full justify-between font-normal'
-                        >
-                          {getLabel(hours, hourOptions)}
-                          <ChevronDown className='h-4 w-4 opacity-50' />
-                        </Button>
-                      </DrawerTrigger>
-                      <DrawerContent>
-                        <DrawerHeader>
-                          <DrawerTitle>Nombre d'heures</DrawerTitle>
-                        </DrawerHeader>
-                        <div className='p-4 pb-0 grid grid-cols-1 gap-2'>
-                          {hourOptions.map(option => (
-                            <DrawerClose key={option.value} asChild>
-                              <Button
-                                variant={
-                                  hours === option.value ? 'secondary' : 'ghost'
-                                }
-                                className='w-full justify-start text-left h-auto py-2'
-                                onClick={() => setHours(option.value)}
-                              >
-                                {option.label}
-                              </Button>
-                            </DrawerClose>
-                          ))}
-                        </div>
-                        <DrawerFooter>
-                          <DrawerClose asChild>
-                            <Button variant='outline'>Annuler</Button>
-                          </DrawerClose>
-                        </DrawerFooter>
-                      </DrawerContent>
-                    </Drawer>
-                  ) : (
-                    <Select
-                      value={hours}
-                      onValueChange={setHours}
-                      required={pricingType === 'hourly'}
-                    >
-                      <SelectTrigger id='hours'>
-                        <SelectValue placeholder='Sélectionnez' />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {hourOptions.map(option => (
-                          <SelectItem key={option.value} value={option.value}>
-                            {option.label}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  )}
-                </div>
-                <div className='space-y-2'>
-                  <Label htmlFor='pickup-hourly'>
-                    Adresse de prise en charge *
-                  </Label>
-                  <div className='flex items-center gap-2'>
-                    <Input
-                      id='pickup-hourly'
-                      placeholder='Adresse complète ou utilisez le GPS'
-                      value={pickupAddress}
-                      onChange={e => {
-                        setPickupAddress(e.target.value);
-                        setPickupCoordinates(null); // Clear coords if user types manually
-                      }}
-                    />
-                    <Button
-                      type='button'
-                      variant='outline'
-                      size='icon'
-                      onClick={handleGetCurrentLocation}
-                      aria-label='Utiliser la position actuelle'
-                    >
-                      <LocateFixed className='h-4 w-4' />
-                    </Button>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {pricingType === 'package' && (
-              <div className='space-y-4'>
-                <div className='space-y-2'>
-                  <Label htmlFor='package-type'>Type de forfait *</Label>
-                  {isMobile ? (
-                    <Drawer>
-                      <DrawerTrigger asChild>
-                        <Button
-                          variant='outline'
-                          className='w-full justify-between font-normal'
-                        >
-                          {getLabel(packageType, packageTypeOptions)}
-                          <ChevronDown className='h-4 w-4 opacity-50' />
-                        </Button>
-                      </DrawerTrigger>
-                      <DrawerContent>
-                        <DrawerHeader>
-                          <DrawerTitle>Type de forfait</DrawerTitle>
-                        </DrawerHeader>
-                        <div className='p-4 pb-0 grid grid-cols-1 gap-2'>
-                          {packageTypeOptions.map(option => (
-                            <DrawerClose key={option.value} asChild>
-                              <Button
-                                variant={
-                                  packageType === option.value
-                                    ? 'secondary'
-                                    : 'ghost'
-                                }
-                                className='w-full justify-start text-left h-auto py-2'
-                                onClick={() => setPackageType(option.value)}
-                              >
-                                {option.label}
-                              </Button>
-                            </DrawerClose>
-                          ))}
-                        </div>
-                        <DrawerFooter>
-                          <DrawerClose asChild>
-                            <Button variant='outline'>Annuler</Button>
-                          </DrawerClose>
-                        </DrawerFooter>
-                      </DrawerContent>
-                    </Drawer>
-                  ) : (
-                    <Select
-                      value={packageType}
-                      onValueChange={setPackageType}
-                      required={pricingType === 'package'}
-                    >
-                      <SelectTrigger id='package-type'>
-                        <SelectValue placeholder='Sélectionnez' />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {packageTypeOptions.map(option => (
-                          <SelectItem key={option.value} value={option.value}>
-                            {option.label}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  )}
-                </div>
-                <div className='space-y-2'>
-                  <Label htmlFor='pickup-package'>
-                    Adresse de prise en charge *
-                  </Label>
-                  <div className='flex items-center gap-2'>
-                    <Input
-                      id='pickup-package'
-                      placeholder='Adresse complète ou utilisez le GPS'
-                      value={pickupAddress}
-                      onChange={e => {
-                        setPickupAddress(e.target.value);
-                        setPickupCoordinates(null); // Clear coords if user types manually
-                      }}
-                    />
-                    <Button
-                      type='button'
-                      variant='outline'
-                      size='icon'
-                      onClick={handleGetCurrentLocation}
-                      aria-label='Utiliser la position actuelle'
-                    >
-                      <LocateFixed className='h-4 w-4' />
-                    </Button>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            <div className='grid grid-cols-1 md:grid-cols-2 gap-4'>
-              <div className='space-y-2'>
-                <Label htmlFor='date'>Date *</Label>
-                <DatePicker onDateSelect={setDate} />
-              </div>
-              <div className='space-y-2'>
-                <Label htmlFor='time'>Heure *</Label>
-                <TimePicker onTimeChange={newTime => setTime(newTime || '')} />
-              </div>
-            </div>
-
             <div className='space-y-2'>
-              <Label>Options supplémentaires</Label>
-              <div className='flex items-center space-x-2 mt-2'>
-                <Checkbox
-                  id='baby-seat'
-                  checked={babySeat}
-                  onCheckedChange={checked => setBabySeat(Boolean(checked))}
-                />
-                <Label htmlFor='baby-seat' className='text-sm font-normal'>
-                  Siège bébé (+10€)
-                </Label>
-              </div>
-              <div className='flex items-center space-x-2'>
-                <Checkbox
-                  id='booster'
-                  checked={booster}
-                  onCheckedChange={checked => setBooster(Boolean(checked))}
-                />
-                <Label htmlFor='booster' className='text-sm font-normal'>
-                  Rehausseur enfant (gratuit)
-                </Label>
-              </div>
+              <Label htmlFor='phone'>Téléphone</Label>
+              <Input
+                id='phone'
+                placeholder='Votre numéro de téléphone'
+                type='tel'
+                value={phone}
+                onChange={e => setPhone(e.target.value)}
+                required
+              />
             </div>
-
+          </div>
+          <div className='space-y-2'>
+            <Label htmlFor='email'>Email (Optionnel)</Label>
+            <Input
+              id='email'
+              placeholder='Votre adresse email'
+              type='email'
+              value={email}
+              onChange={e => setEmail(e.target.value)}
+            />
+          </div>
+          <div className='grid grid-cols-1 gap-4 sm:grid-cols-2'>
             <div className='space-y-2'>
-              <Label htmlFor='vehicle'>Véhicule préféré</Label>
+              <Label htmlFor='passengers'>Nombre de passagers</Label>
               {isMobile ? (
                 <Drawer>
                   <DrawerTrigger asChild>
                     <Button
                       variant='outline'
-                      className='w-full justify-between font-normal'
+                      className='w-full justify-between'
                     >
                       {getLabel(
-                        vehicle,
-                        vehicleOptions,
-                        'Quel type de véhicule souhaitez-vous réserver ?'
+                        passengers,
+                        passengerOptions,
+                        'Choisir le nombre'
                       )}
-                      <ChevronDown className='h-4 w-4 opacity-50' />
+                      <ChevronDown className='ml-2 h-4 w-4' />
                     </Button>
                   </DrawerTrigger>
                   <DrawerContent>
                     <DrawerHeader>
-                      <DrawerTitle>Véhicule préféré</DrawerTitle>
+                      <DrawerTitle>Nombre de passagers</DrawerTitle>
                     </DrawerHeader>
-                    <div className='p-4 pb-0 grid grid-cols-1 gap-2'>
-                      {vehicleOptions.map(option => (
-                        <DrawerClose key={option.value} asChild>
+                    <div className='p-4'>
+                      {passengerOptions.map(option => (
+                        <DrawerClose asChild key={option.value}>
                           <Button
-                            variant={
-                              vehicle === option.value ? 'secondary' : 'ghost'
-                            }
-                            className='w-full justify-start text-left h-auto py-2'
-                            onClick={() => setVehicle(option.value)}
+                            variant='ghost'
+                            className='w-full justify-start mb-2'
+                            onClick={() => setPassengers(option.value)}
                           >
                             {option.label}
                           </Button>
@@ -808,18 +812,22 @@ export default function ReservationForm() {
                     </div>
                     <DrawerFooter>
                       <DrawerClose asChild>
-                        <Button variant='outline'>Annuler</Button>
+                        <Button variant='outline'>Fermer</Button>
                       </DrawerClose>
                     </DrawerFooter>
                   </DrawerContent>
                 </Drawer>
               ) : (
-                <Select value={vehicle} onValueChange={setVehicle}>
-                  <SelectTrigger id='vehicle'>
-                    <SelectValue placeholder='Quel type de véhicule souhaitez-vous réserver ?' />
+                <Select
+                  value={passengers}
+                  onValueChange={setPassengers}
+                  required
+                >
+                  <SelectTrigger id='passengers'>
+                    <SelectValue placeholder='Choisir le nombre' />
                   </SelectTrigger>
                   <SelectContent>
-                    {vehicleOptions.map(option => (
+                    {passengerOptions.map(option => (
                       <SelectItem key={option.value} value={option.value}>
                         {option.label}
                       </SelectItem>
@@ -828,25 +836,432 @@ export default function ReservationForm() {
                 </Select>
               )}
             </div>
-
             <div className='space-y-2'>
-              <Label htmlFor='notes'>Notes supplémentaires</Label>
-              <Textarea
-                id='notes'
-                placeholder='Informations complémentaires pour votre trajet'
-                value={notes}
-                onChange={e => setNotes(e.target.value)}
-              />
+              <Label>Type de tarification</Label>
+              <RadioGroup
+                value={pricingType}
+                onValueChange={setPricingType}
+                className='flex flex-col sm:flex-row sm:gap-4 pt-2'
+                required
+              >
+                <div className='flex items-center space-x-2'>
+                  <RadioGroupItem value='fixed' id='fixed' />
+                  <Label htmlFor='fixed'>Tarif Fixe</Label>
+                </div>
+                <div className='flex items-center space-x-2'>
+                  <RadioGroupItem value='hourly' id='hourly' />
+                  <Label htmlFor='hourly'>Par Heure</Label>
+                </div>
+                <div className='flex items-center space-x-2'>
+                  <RadioGroupItem value='package' id='package' />
+                  <Label htmlFor='package'>Forfait</Label>
+                </div>
+              </RadioGroup>
             </div>
           </div>
 
-          <Button type='submit' className='w-full'>
-            Envoyer la réservation
+          {/* Conditional Fields Container */}
+          <div className='border-l-2 border-primary pl-4 space-y-4 mt-4'>
+            {pricingType === 'fixed' && (
+              <>
+                <div className='space-y-2'>
+                  <Label htmlFor='destination'>Destination</Label>
+                  {isMobile ? (
+                    <Drawer>
+                      <DrawerTrigger asChild>
+                        <Button
+                          variant='outline'
+                          className='w-full justify-between'
+                        >
+                          {getLabel(
+                            destination,
+                            destinationOptions,
+                            'Choisir la destination'
+                          )}
+                          <ChevronDown className='ml-2 h-4 w-4' />
+                        </Button>
+                      </DrawerTrigger>
+                      <DrawerContent>
+                        <DrawerHeader>
+                          <DrawerTitle>Destination</DrawerTitle>
+                        </DrawerHeader>
+                        <div className='p-4'>
+                          {destinationOptions.map(option => {
+                            const generatedKey = `${option.value}-${option.label}`;
+                            return (
+                              <DrawerClose asChild key={generatedKey}>
+                                <Button
+                                  variant='ghost'
+                                  className='w-full justify-start mb-2'
+                                  onClick={() => setDestination(generatedKey)}
+                                >
+                                  {option.label}
+                                </Button>
+                              </DrawerClose>
+                            );
+                          })}
+                        </div>
+                        <DrawerFooter>
+                          <DrawerClose asChild>
+                            <Button variant='outline'>Fermer</Button>
+                          </DrawerClose>
+                        </DrawerFooter>
+                      </DrawerContent>
+                    </Drawer>
+                  ) : (
+                    <Select
+                      value={destination}
+                      onValueChange={setDestination}
+                      required
+                    >
+                      <SelectTrigger id='destination'>
+                        <SelectValue placeholder='Choisir la destination' />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {destinationOptions.map(option => {
+                          const generatedKey = `${option.value}-${option.label}`;
+                          return (
+                            <SelectItem key={generatedKey} value={generatedKey}>
+                              {option.label}
+                            </SelectItem>
+                          );
+                        })}
+                      </SelectContent>
+                    </Select>
+                  )}
+                </div>
+                {destination === 'other-Autre (préciser ci-dessous)' && (
+                  <div className='space-y-2'>
+                    <Label htmlFor='manualDestination'>
+                      Adresse de destination complète*
+                    </Label>
+                    <Input
+                      id='manualDestination'
+                      ref={destinationInputRef}
+                      placeholder="Entrez l'adresse de destination"
+                      value={manualDestination}
+                      onChange={handleManualDestinationChange}
+                      required
+                    />
+                  </div>
+                )}
+              </>
+            )}
+            {pricingType === 'hourly' && (
+              <div className='space-y-2'>
+                <Label htmlFor='hours'>Nombre d'heures</Label>
+                {isMobile ? (
+                  <Drawer>
+                    <DrawerTrigger asChild>
+                      <Button
+                        variant='outline'
+                        className='w-full justify-between'
+                      >
+                        {getLabel(hours, hourOptions, 'Choisir la durée')}
+                        <ChevronDown className='ml-2 h-4 w-4' />
+                      </Button>
+                    </DrawerTrigger>
+                    <DrawerContent>
+                      <DrawerHeader>
+                        <DrawerTitle>Nombre d'heures</DrawerTitle>
+                      </DrawerHeader>
+                      <div className='p-4'>
+                        {hourOptions.map(option => (
+                          <DrawerClose asChild key={option.value}>
+                            <Button
+                              variant='ghost'
+                              className='w-full justify-start mb-2'
+                              onClick={() => setHours(option.value)}
+                            >
+                              {option.label}
+                            </Button>
+                          </DrawerClose>
+                        ))}
+                      </div>
+                      <DrawerFooter>
+                        <DrawerClose asChild>
+                          <Button variant='outline'>Fermer</Button>
+                        </DrawerClose>
+                      </DrawerFooter>
+                    </DrawerContent>
+                  </Drawer>
+                ) : (
+                  <Select value={hours} onValueChange={setHours} required>
+                    <SelectTrigger id='hours'>
+                      <SelectValue placeholder='Choisir la durée' />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {hourOptions.map(option => (
+                        <SelectItem key={option.value} value={option.value}>
+                          {option.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
+              </div>
+            )}
+
+            {pricingType === 'package' && (
+              <div className='space-y-2'>
+                <Label htmlFor='packageType'>Type de forfait</Label>
+                {isMobile ? (
+                  <Drawer>
+                    <DrawerTrigger asChild>
+                      <Button
+                        variant='outline'
+                        className='w-full justify-between'
+                      >
+                        {getLabel(
+                          packageType,
+                          packageTypeOptions,
+                          'Choisir le forfait'
+                        )}
+                        <ChevronDown className='ml-2 h-4 w-4' />
+                      </Button>
+                    </DrawerTrigger>
+                    <DrawerContent>
+                      <DrawerHeader>
+                        <DrawerTitle>Type de forfait</DrawerTitle>
+                      </DrawerHeader>
+                      <div className='p-4'>
+                        {packageTypeOptions.map(option => (
+                          <DrawerClose asChild key={option.value}>
+                            <Button
+                              variant='ghost'
+                              className='w-full justify-start mb-2'
+                              onClick={() => setPackageType(option.value)}
+                            >
+                              {option.label}
+                            </Button>
+                          </DrawerClose>
+                        ))}
+                      </div>
+                      <DrawerFooter>
+                        <DrawerClose asChild>
+                          <Button variant='outline'>Fermer</Button>
+                        </DrawerClose>
+                      </DrawerFooter>
+                    </DrawerContent>
+                  </Drawer>
+                ) : (
+                  <Select
+                    value={packageType}
+                    onValueChange={setPackageType}
+                    required
+                  >
+                    <SelectTrigger id='packageType'>
+                      <SelectValue placeholder='Choisir le forfait' />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {packageTypeOptions.map(option => (
+                        <SelectItem key={option.value} value={option.value}>
+                          {option.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* Pickup Address (Always Visible) */}
+          <div className='space-y-1 pt-4'>
+            <Label htmlFor='pickupAddress'>Adresse de prise en charge*</Label>
+            <div className='flex items-center gap-2'>
+              <Input
+                id='pickupAddress'
+                ref={pickupInputRef}
+                placeholder="Entrez l'adresse de prise en charge"
+                value={pickupAddress}
+                onChange={handlePickupChange}
+                required
+              />
+              <Button
+                type='button'
+                variant='outline'
+                size='icon'
+                onClick={handleGetCurrentLocation}
+                title='Utiliser ma position'
+                aria-label='Utiliser ma position actuelle'
+              >
+                <LocateFixed className='h-4 w-4' />
+              </Button>
+            </div>
+          </div>
+
+          {/* Date and Time Pickers */}
+          <div className='grid grid-cols-1 gap-4 md:grid-cols-2'>
+            <div className='space-y-2'>
+              <Label>Date*</Label>
+              <DatePicker onDateSelect={setDate} />
+            </div>
+            <div className='space-y-2'>
+              <Label>Heure*</Label>
+              <TimePicker onTimeChange={newTime => setTime(newTime || '')} />
+            </div>
+          </div>
+
+          <div className='space-y-4'>
+            <Label>Options supplémentaires</Label>
+            <div className='flex flex-col sm:flex-row sm:gap-6'>
+              <div className='flex items-center space-x-2'>
+                <Checkbox
+                  id='babySeat'
+                  checked={babySeat}
+                  onCheckedChange={checked => setBabySeat(Boolean(checked))}
+                />
+                <Label htmlFor='babySeat'>
+                  Siège bébé (+{BABY_SEAT_PRICE}€)
+                </Label>
+              </div>
+              <div className='flex items-center space-x-2 mt-2 sm:mt-0'>
+                <Checkbox
+                  id='booster'
+                  checked={booster}
+                  onCheckedChange={checked => setBooster(Boolean(checked))}
+                />
+                <Label htmlFor='booster'>Réhausseur enfant (Gratuit)</Label>
+              </div>
+            </div>
+          </div>
+
+          <div className='space-y-2'>
+            <Label htmlFor='vehicle'>Véhicule souhaité</Label>
+            {isMobile ? (
+              <Drawer>
+                <DrawerTrigger asChild>
+                  <Button variant='outline' className='w-full justify-between'>
+                    {getLabel(vehicle, vehicleOptions, 'Choisir le véhicule')}
+                    <ChevronDown className='ml-2 h-4 w-4' />
+                  </Button>
+                </DrawerTrigger>
+                <DrawerContent>
+                  <DrawerHeader>
+                    <DrawerTitle>Véhicule souhaité</DrawerTitle>
+                  </DrawerHeader>
+                  <div className='p-4'>
+                    {vehicleOptions.map(option => (
+                      <DrawerClose asChild key={option.value}>
+                        <Button
+                          variant='ghost'
+                          className='w-full justify-start mb-2'
+                          onClick={() => setVehicle(option.value)}
+                        >
+                          {option.label}
+                        </Button>
+                      </DrawerClose>
+                    ))}
+                  </div>
+                  <DrawerFooter>
+                    <DrawerClose asChild>
+                      <Button variant='outline'>Fermer</Button>
+                    </DrawerClose>
+                  </DrawerFooter>
+                </DrawerContent>
+              </Drawer>
+            ) : (
+              <Select value={vehicle} onValueChange={setVehicle} required>
+                <SelectTrigger id='vehicle'>
+                  <SelectValue placeholder='Choisir le véhicule' />
+                </SelectTrigger>
+                <SelectContent>
+                  {vehicleOptions.map(option => (
+                    <SelectItem key={option.value} value={option.value}>
+                      {option.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
+          </div>
+
+          <div className='space-y-2'>
+            <Label htmlFor='notes'>Notes (Optionnel)</Label>
+            <Textarea
+              id='notes'
+              placeholder='Informations supplémentaires pour le chauffeur'
+              value={notes}
+              onChange={e => setNotes(e.target.value)}
+            />
+          </div>
+
+          <div className='space-y-4'>
+            <Label>Mode de paiement</Label>
+            <RadioGroup
+              value={paymentMethod}
+              onValueChange={value =>
+                setPaymentMethod(value as 'delivery' | 'card')
+              }
+              className='flex flex-col sm:flex-row sm:gap-4'
+              required
+            >
+              <div className='flex items-center space-x-2'>
+                <RadioGroupItem value='card' id='card' />
+                <Label htmlFor='card'>Payer par Carte</Label>
+              </div>
+              <div className='flex items-center space-x-2'>
+                <RadioGroupItem value='delivery' id='delivery' />
+                <Label htmlFor='delivery'>Payer à bord</Label>
+              </div>
+            </RadioGroup>
+          </div>
+
+          {/* Price Display */}
+          <div className='border p-4 rounded-md bg-gray-50 space-y-2 min-h-[80px]'>
+            <h3 className='font-medium text-center'>Estimation du prix</h3>
+            <div className='text-center text-2xl font-bold'>
+              {isCalculatingPrice ? (
+                <div className='flex justify-center items-center'>
+                  <Loader2 className='mr-2 h-5 w-5 animate-spin' /> Calcul...
+                </div>
+              ) : calculatedPrice !== null ? (
+                `${calculatedPrice} €`
+              ) : destination === 'other-Autre (préciser ci-dessous)' &&
+                (!pickupAddress || !manualDestination) ? (
+                <span className='text-sm text-gray-500 font-normal'>
+                  Veuillez renseigner les adresses pour calculer le prix.
+                </span>
+              ) : destination === 'other-Autre (préciser ci-dessous)' ? (
+                <span className='text-sm text-gray-500 font-normal'>
+                  Impossible de calculer. Vérifiez les adresses.
+                </span>
+              ) : (
+                <span className='text-sm text-gray-500 font-normal'>
+                  Sélectionnez une option ou remplissez les adresses.
+                </span>
+              )}
+            </div>
+          </div>
+
+          {submitError && <p className='text-sm text-red-600'>{submitError}</p>}
+
+          <Button
+            type='submit'
+            className='w-full'
+            disabled={
+              isCalculatingPrice ||
+              isRedirectingToStripe || // Disable while redirecting
+              (!calculatedPrice && paymentMethod === 'card')
+            }
+          >
+            {isCalculatingPrice ? (
+              <>
+                <Loader2 className='mr-2 h-4 w-4 animate-spin' /> Calcul en
+                cours...
+              </>
+            ) : isRedirectingToStripe ? ( // Show redirection state
+              <>
+                <Loader2 className='mr-2 h-4 w-4 animate-spin' /> Redirection
+                vers le paiement...
+              </>
+            ) : paymentMethod === 'delivery' ? (
+              'Réserver (Paiement à bord)'
+            ) : (
+              'Procéder au Paiement par Carte'
+            )}
           </Button>
-          <p className='text-xs text-muted-foreground text-center pt-2'>
-            * Champs obligatoires. Après avoir cliqué sur Envoyer, vous serez
-            redirigé vers WhatsApp pour confirmer l'envoi du récapitulatif.
-          </p>
         </form>
       </CardContent>
     </Card>
